@@ -1,5 +1,9 @@
+import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+# Ambil token dari environment variable
+TOKEN = os.getenv("BOT_TOKEN")
 
 produk = {
     "net1": {"nama": "Netflix Premium", "harga": 23000, "terjual": 2},
