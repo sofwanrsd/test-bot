@@ -1,69 +1,132 @@
 import os
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    ConversationHandler,
+    filters,
+)
 
-# Data produk
 produk = {
-    "net1": {"nama": "Netflix Premium", "harga": 23000, "terjual": 2},
-    "cc7d": {"nama": "ChatGPT Plus Akun", "harga": 15000, "terjual": 1},
+    "1": {"nama": "Netflix Premium", "stok": 5, "harga": 23000},
+    "2": {"nama": "Spotify Premium", "stok": 3, "harga": 15000},
+    "3": {"nama": "YouTube Premium", "stok": 2, "harga": 20000},
+    "4": {"nama": "ChatGPT Plus", "stok": 4, "harga": 18000},
 }
 
-# Keyboard menu utama
+# States
+PILIH_PRODUK, PEMBAYARAN = range(2)
+
 menu_utama = ReplyKeyboardMarkup(
-    [["List Produk", "Cara Order"]],
+    [["Lihat Produk"]],
     resize_keyboard=True
 )
 
-# Command /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     await update.message.reply_text(
-        "🛍️ Selamat datang di *KoalaStoreBot*! Silakan pilih menu:",
+        f"Halo {user.first_name} 👋\n"
+        "Selamat datang di *KoalaStoreBot*! Ketik atau pilih 'Lihat Produk' untuk mulai.",
         parse_mode="Markdown",
         reply_markup=menu_utama
     )
+    return PILIH_PRODUK
 
-# Handler untuk "List Produk"
-async def list_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pesan = "🔥 *Top Produk Kami:*\n\n"
-    for idx, (kode, item) in enumerate(produk.items(), start=1):
-        total = item["harga"] * item["terjual"]
+async def tampilkan_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pesan = "📦 *List Produk Tersedia:*\n\n"
+    for kode, item in produk.items():
         pesan += (
-            f"{idx}. 📦 *{item['nama']}*\n"
-            f"🔖 Kode: `{kode}`\n"
-            f"🛒 Terjual: {item['terjual']}\n"
-            f"💰 Pendapatan: Rp{total:,}\n\n"
+            f"{kode}. *{item['nama']}*\n"
+            f"   💰 Harga: Rp{item['harga']:,}\n"
+            f"   📦 Stok: {item['stok']}\n\n"
         )
+    pesan += "Ketik nomor produk (1 / 2 / 3 / 4) untuk melanjutkan."
     await update.message.reply_text(pesan, parse_mode="Markdown")
+    return PILIH_PRODUK
 
-# Handler untuk "Cara Order"
-async def cara_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    video_link = "https://t.me/your_channel/123"  # Ganti dengan link kamu
-    pesan = (
-        f"📽️ [TUTORIAL PEMESANAN]({video_link})\n\n"
-        "Klik link di atas jika kamu belum tahu cara order."
+async def pilih_produk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pilihan = update.message.text.strip()
+    if pilihan not in produk:
+        await update.message.reply_text("❌ Pilihan tidak valid. Silakan ketik 1, 2, 3, atau 4.")
+        return PILIH_PRODUK
+
+    item = produk[pilihan]
+    context.user_data["produk_dipilih"] = pilihan
+
+    await update.message.reply_text(
+        f"📦 *{item['nama']}*\n"
+        f"💰 Harga: Rp{item['harga']:,}\n"
+        f"📦 Stok: {item['stok']}\n\n"
+        f"Cara order:\nKetik `buy {pilihan}` untuk melanjutkan ke pembayaran.",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(pesan, parse_mode="Markdown")
+    return PEMBAYARAN
 
-# Handler pesan teks
-async def handle_pesan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text == "List Produk":
-        await list_produk(update, context)
-    elif text == "Cara Order":
-        await cara_order(update, context)
-    else:
-        await update.message.reply_text("Silakan pilih menu yang tersedia.")
+async def proses_pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+    if not text.startswith("buy"):
+        await update.message.reply_text("Ketik `buy <nomor>` untuk melanjutkan pembelian.")
+        return PEMBAYARAN
 
-# ================================
-# Inisialisasi Bot
-# ================================
+    kode = text.split(" ")[1] if len(text.split()) > 1 else None
+    if kode not in produk:
+        await update.message.reply_text("Produk tidak ditemukan.")
+        return PILIH_PRODUK
+
+    item = produk[kode]
+
+    await update.message.reply_text(
+        f"✅ *Pembayaran*\nSilakan transfer Rp{item['harga']:,} ke:\n"
+        "`1234567890 (Bank ABC)`\n\n"
+        "Setelah transfer, ketik `sudah bayar` untuk konfirmasi.",
+        parse_mode="Markdown"
+    )
+    return "KONFIRMASI"
+
+async def konfirmasi_pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text.lower() != "sudah bayar":
+        await update.message.reply_text("Ketik `sudah bayar` setelah kamu transfer.")
+        return "KONFIRMASI"
+
+    kode = context.user_data.get("produk_dipilih")
+    item = produk.get(kode)
+
+    await update.message.reply_text(
+        f"🎉 Terima kasih! Pembayaran untuk *{item['nama']}* diterima.\n"
+        f"Akun akan dikirimkan segera...\n\n"
+        f"🔑 Username: `user_{kode}`\n🔑 Password: `pass1234`",
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Transaksi dibatalkan.")
+    return ConversationHandler.END
 
 if __name__ == "__main__":
-    TOKEN = os.environ.get("BOT_TOKEN")  # Dapat dari Railway Variables
+    TOKEN = os.environ.get("BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pesan))
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            PILIH_PRODUK: [
+                MessageHandler(filters.Regex("(?i)^Lihat Produk$"), tampilkan_produk),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, pilih_produk)
+            ],
+            PEMBAYARAN: [
+                MessageHandler(filters.Regex("^buy "), proses_pembayaran),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, proses_pembayaran),
+            ],
+            "KONFIRMASI": [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, konfirmasi_pembayaran)
+            ],
+        },
+        fallbacks=[CommandHandler("batal", batal)],
+    )
 
-    print("Bot sedang berjalan...")
+    app.add_handler(conv_handler)
+    print("Bot berjalan...")
     app.run_polling()
