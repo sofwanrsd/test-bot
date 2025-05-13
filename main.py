@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Load env variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "5678748710").split(",")))  # comma-separated admin IDs
+ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))
 
 # Data files
 SERVICES_FILE = "data/services.json"
