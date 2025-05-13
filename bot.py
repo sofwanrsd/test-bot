@@ -1,218 +1,221 @@
-import logging
+import os
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Updater, CommandHandler, MessageHandler, Filters,
     CallbackContext, CallbackQueryHandler
 )
-import pymongo  # Untuk database MongoDB
 from datetime import datetime, timedelta
 
 # Konfigurasi
-TOKEN = "TOKEN_BOT_ANDA"
-ADMIN_IDS = [123456789]  # Ganti dengan chat ID admin
-PAYMENT_DURATION = 15  # Menit (batas waktu pembayaran)
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_IDS = [int(id) for id in os.getenv("ADMIN_IDS", "").split(",") if id]  # Format: "123,456"
+JSON_DB = "accounts.json"
 
-# Koneksi MongoDB
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["premium_accounts_bot"]
+# Inisialisasi database JSON
+def init_db():
+    if not os.path.exists(JSON_DB):
+        with open(JSON_DB, "w") as f:
+            json.dump([], f)
 
-# Setup Logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+def load_db():
+    with open(JSON_DB, "r") as f:
+        return json.load(f)
+
+def save_db(data):
+    with open(JSON_DB, "w") as f:
+        json.dump(data, f, indent=2)
 
 # ====================== FUNGSI UTAMA ======================
-
 def start(update: Update, context: CallbackContext):
     user = update.effective_user
     if user.id in ADMIN_IDS:
-        # Tampilan khusus admin
-        keyboard = [
-            [InlineKeyboardButton("➕ Tambah Akun", callback_data="admin_add")],
-            [InlineKeyboardButton("📊 Laporan", callback_data="admin_report")]
-        ]
         update.message.reply_text(
-            f"👑 *MODE ADMIN* - Hai {user.first_name}!\n"
-            "Gunakan menu di bawah:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            f"👑 *ADMIN MODE* - Hai {user.first_name}!\n"
+            "Gunakan perintah:\n"
+            "/tambah_akun - Tambah akun baru\n"
+            "/list_akun - Lihat stok",
             parse_mode="Markdown"
         )
     else:
-        # Tampilan user biasa
-        keyboard = [
-            [InlineKeyboardButton("🎬 Netflix", callback_data="category_netflix")],
-            [InlineKeyboardButton("🎵 Spotify", callback_data="category_spotify")],
-            [InlineKeyboardButton("📺 YouTube", callback_data="category_youtube")]
-        ]
         update.message.reply_text(
             f"👋 Hai {user.first_name}!\n"
             "💎 *TOKO AKUN PREMIUM*\n\n"
-            "Pilih kategori:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            "Cari akun dengan mengetik:\n"
+            "Contoh: 'Netflix', 'Spotify', 'YouTube'",
             parse_mode="Markdown"
         )
 
-def handle_text(update: Update, context: CallbackContext):
+def handle_search(update: Update, context: CallbackContext):
     text = update.message.text.lower()
+    accounts = load_db()
     
-    # Cek jika user mengetik langsung nama layanan
-    services = ["netflix", "spotify", "youtube", "zoom"]
-    for service in services:
-        if service in text:
-            show_products(update, context, service)
-            return
+    available = [acc for acc in accounts if acc["service"].lower() == text and acc["status"] == "available"]
     
-    update.message.reply_text("🔍 Ketik nama layanan (contoh: 'Netflix')")
-
-def show_products(update: Update, context: CallbackContext, service: str):
-    # Ambil produk dari database
-    products = list(db.accounts.find({"service": service, "status": "available"}))
-    
-    if not products:
-        update.message.reply_text(f"😢 Stok {service} kosong. Coba lain kali!")
+    if not available:
+        update.message.reply_text("😢 Stok kosong. Coba layanan lain!")
         return
     
-    # Buat tombol pilihan durasi
     keyboard = []
-    for product in products[:3]:  # Tampilkan max 3 pilihan
+    for acc in available[:3]:  # Tampilkan max 3 akun
         keyboard.append([
             InlineKeyboardButton(
-                f"{product['duration']} - Rp{product['price']}",
-                callback_data=f"select_{product['_id']}"
+                f"{acc['service']} ({acc['duration']}) - Rp{acc['price']}",
+                callback_data=f"buy_{acc['id']}"
             )
         ])
     
     update.message.reply_text(
-        f"🎯 *{service.upper()} PREMIUM*\n"
+        f"🔍 *{text.upper()} PREMIUM* tersedia:\n"
         "Pilih paket:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
-def payment_confirmation(update: Update, context: CallbackContext, product_id: str):
-    # Simpan data sementara
-    product = db.accounts.find_one({"_id": product_id})
+def process_payment(update: Update, context: CallbackContext):
+    query = update.callback_query
+    account_id = int(query.data.split("_")[1])
+    
+    accounts = load_db()
+    account = next((acc for acc in accounts if acc["id"] == account_id), None)
+    
+    if not account:
+        query.edit_message_text("❌ Akun tidak tersedia lagi")
+        return
+    
+    # Simpan data pembelian sementara
     context.user_data["pending_payment"] = {
-        "product_id": product_id,
-        "expires": datetime.now() + timedelta(minutes=PAYMENT_DURATION)
+        "account_id": account_id,
+        "expires": datetime.now() + timedelta(minutes=15)
     }
     
-    # Tampilkan instruksi pembayaran
-    keyboard = [
-        [InlineKeyboardButton("✅ Sudah Bayar", callback_data="confirm_payment")],
-        [InlineKeyboardButton("❌ Batalkan", callback_data="cancel_payment")]
-    ]
-    
-    update.callback_query.edit_message_text(
+    query.edit_message_text(
         f"💳 *PEMBAYARAN*\n"
-        f"Produk: {product['service']} {product['duration']}\n"
-        f"Total: Rp{product['price']}\n\n"
-        "🔧 Metode Pembayaran:\n"
-        "1. QRIS: https://qr-code-generator.com/example\n"
-        "2. Transfer Bank: BCA 123-456-7890\n\n"
-        f"⏳ Batas waktu: {PAYMENT_DURATION} menit",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        f"Layanan: {account['service']} {account['duration']}\n"
+        f"Harga: Rp{account['price']}\n\n"
+        "🔄 Metode Pembayaran:\n"
+        "1. QRIS: [Kode QR]\n"
+        "2. Transfer: BCA 1234567890\n\n"
+        "⚠️ Batas waktu: 15 menit\n\n"
+        "Setelah bayar, klik tombol dibawah:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Konfirmasi Pembayaran", callback_data=f"confirm_{account_id}")],
+            [InlineKeyboardButton("❌ Batalkan", callback_data="cancel")]
+        ]),
         parse_mode="Markdown"
     )
 
 def send_account(update: Update, context: CallbackContext):
     query = update.callback_query
-    user_data = context.user_data
+    account_id = int(query.data.split("_")[1])
     
-    # Ambil akun dari database
-    product = db.accounts.find_one({"_id": user_data["pending_payment"]["product_id"]})
+    accounts = load_db()
+    account = next((acc for acc in accounts if acc["id"] == account_id), None)
+    
+    if not account:
+        query.edit_message_text("❌ Akun tidak ditemukan")
+        return
     
     # Update status akun
-    db.accounts.update_one(
-        {"_id": product["_id"]},
-        {"$set": {"status": "sold", "sold_to": query.from_user.id}}
-    )
+    account["status"] = "sold"
+    account["sold_at"] = datetime.now().isoformat()
+    save_db(accounts)
     
     # Kirim akun ke user
     query.edit_message_text(
         f"🎉 *PEMBELIAN BERHASIL!*\n\n"
-        f"🔑 {product['service'].upper()} ACCOUNT:\n"
-        f"📧 Email: {product['email']}\n"
-        f"🔒 Password: {product['password']}\n\n"
-        f"⏳ Berlaku hingga: {product['expiry_date']}\n\n"
-        "⚠️ Segera ganti password setelah login!",
+        f"🔑 {account['service'].upper()} ACCOUNT:\n"
+        f"📧 Email: {account['email']}\n"
+        f"🔒 Password: {account['password']}\n\n"
+        f"⏳ Berlaku hingga: {account['expiry_date']}\n\n"
+        "⚠️ Segera ganti password setelah login!\n\n"
+        "Gunakan /help jika ada masalah",
         parse_mode="Markdown"
     )
-    
-    # Hapus data sementara
-    del context.user_data["pending_payment"]
 
 # ====================== ADMIN FUNCTIONS ======================
-
-def admin_add_account(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-    query.edit_message_text(
-        "📥 Format tambah akun:\n"
-        "/tambah_akun <layanan> <email> <password> <durasi> <harga>\n\n"
-        "Contoh:\n"
-        "/tambah_akun netflix acc1@mail.com pass123 \"1 Bulan\" 50000"
-    )
-
-def tambah_akun(update: Update, context: CallbackContext):
+def add_account(update: Update, context: CallbackContext):
     if update.effective_user.id not in ADMIN_IDS:
         update.message.reply_text("❌ Akses ditolak!")
         return
     
-    try:
-        args = context.args
-        if len(args) != 5:
-            raise ValueError("Format salah!")
-        
-        new_account = {
-            "service": args[0].lower(),
-            "email": args[1],
-            "password": args[2],
-            "duration": args[3],
-            "price": int(args[4]),
-            "status": "available",
-            "added_at": datetime.now(),
-            "expiry_date": datetime.now() + timedelta(days=30)  # Contoh: 30 hari
-        }
-        
-        # Simpan ke database
-        db.accounts.insert_one(new_account)
-        
+    args = context.args
+    if len(args) < 5:
         update.message.reply_text(
-            f"✅ Akun {new_account['service']} berhasil ditambahkan!\n"
-            f"📧 {new_account['email']}\n"
-            f"💰 Rp{new_account['price']}"
+            "Format: /tambah_akun <layanan> <email> <password> <durasi> <harga>\n"
+            "Contoh: /tambah_akun netflix acc1@mail.com pass123 \"1 Bulan\" 50000"
         )
-    except Exception as e:
-        update.message.reply_text(f"❌ Error: {str(e)}")
+        return
+    
+    accounts = load_db()
+    new_id = max([acc["id"] for acc in accounts], default=0) + 1
+    
+    new_account = {
+        "id": new_id,
+        "service": args[0],
+        "email": args[1],
+        "password": args[2],
+        "duration": args[3],
+        "price": int(args[4]),
+        "status": "available",
+        "added_at": datetime.now().isoformat(),
+        "expiry_date": (datetime.now() + timedelta(days=30)).isoformat()  # Contoh: 30 hari
+    }
+    
+    accounts.append(new_account)
+    save_db(accounts)
+    
+    update.message.reply_text(
+        f"✅ Akun {new_account['service']} berhasil ditambahkan!\n"
+        f"ID: {new_account['id']}\n"
+        f"Email: {new_account['email']}\n"
+        f"Harga: Rp{new_account['price']}"
+    )
 
-# ====================== HANDLER ======================
+def list_accounts(update: Update, context: CallbackContext):
+    if update.effective_user.id not in ADMIN_IDS:
+        update.message.reply_text("❌ Akses ditolak!")
+        return
+    
+    accounts = load_db()
+    if not accounts:
+        update.message.reply_text("📭 Database kosong")
+        return
+    
+    text = "📦 DAFTAR AKUN TERSEDIA:\n\n"
+    for acc in accounts:
+        status = "✅ TERSEDIA" if acc["status"] == "available" else "❌ TERJUAL"
+        text += (
+            f"ID: {acc['id']}\n"
+            f"Layanan: {acc['service']}\n"
+            f"Email: {acc['email']}\n"
+            f"Status: {status}\n"
+            f"Ditambahkan: {acc['added_at'][:10]}\n\n"
+        )
+    
+    update.message.reply_text(text)
 
+# ====================== SETUP BOT ======================
 def main():
+    init_db()  # Pastikan file JSON ada
+    
     updater = Updater(TOKEN)
     dp = updater.dispatcher
 
     # Command handlers
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("tambah_akun", tambah_akun))
+    dp.add_handler(CommandHandler("tambah_akun", add_account))
+    dp.add_handler(CommandHandler("list_akun", list_accounts))
 
     # Message handlers
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_search))
 
     # Callback handlers
-    dp.add_handler(CallbackQueryHandler(
-        lambda update, ctx: show_products(update, ctx, update.callback_query.data.split("_")[1]),
-        pattern="^category_"
-    ))
-    dp.add_handler(CallbackQueryHandler(
-        lambda update, ctx: payment_confirmation(update, ctx, update.callback_query.data.split("_")[1]),
-        pattern="^select_"
-    ))
-    dp.add_handler(CallbackQueryHandler(send_account, pattern="^confirm_payment$"))
-    dp.add_handler(CallbackQueryHandler(admin_add_account, pattern="^admin_add$"))
+    dp.add_handler(CallbackQueryHandler(process_payment, pattern="^buy_"))
+    dp.add_handler(CallbackQueryHandler(send_account, pattern="^confirm_"))
 
+    # Start bot
+    print("Bot started...")
     updater.start_polling()
     updater.idle()
 
