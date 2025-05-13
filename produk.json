@@ -1,0 +1,12 @@
+{
+  "1": {
+    "name": "Netflix",
+    "detail": "1P1U",
+    "stok": 5,
+    "harga": 15000,
+    "deskripsi": "Garansi 25-30 Hari, Bebas edit PIN & Profil",
+    "akun": [
+      { "email": "net1@mail.com", "pass": "net123" }
+    ]
+  }
+}
