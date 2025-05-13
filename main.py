@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Ganti dengan token asli
 BOT_TOKEN = "YOUR_BOT_TOKEN"
-ADMIN_IDS = [123456789]  # Ganti dengan ID admin
+ADMIN_IDS = [5678748710]  # Ganti dengan ID admin
 
 # Inisialisasi data jika belum ada
 if not os.path.exists("database.json"):
