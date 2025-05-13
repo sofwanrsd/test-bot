@@ -7,8 +7,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
 
 # Konfigurasi
+# Load .env file jika ada (hanya untuk development)
+load_dotenv()
+
+# Ambil variabel environment dengan error handling
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "123456789"))
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN harus diset di environment variables!")
+
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))  # Default: 0 (tidak ada admin)
+PORT = int(os.getenv("PORT", "8080"))  # Default: 8080
 
 # Inisialisasi Flask
 app = Flask(__name__)
