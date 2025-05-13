@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "name": "Netflix",
+    "description": "Akun Netflix Premium 1 Bulan.",
+    "price": "Rp35.000"
+  },
+  {
+    "id": 2,
+    "name": "VIU",
+    "description": "Akun VIU Premium 1 Bulan.",
+    "price": "Rp25.000"
+  },
+  {
+    "id": 3,
+    "name": "Canva",
+    "description": "Akun Canva Pro 1 Bulan (Team Invite).",
+    "price": "Rp30.000"
+  }
+]
