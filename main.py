@@ -93,6 +93,7 @@ async def admin_panel(message: types.Message):
         "🛠️ **Panel Admin**\n"
         "Pilih opsi di bawah:",
         reply_markup=kb.as_markup(resize_keyboard=True)
+    )
     
 # === ADD PRODUCT FLOW ===
 @dp.message(F.text == "➕ Tambah Produk")
