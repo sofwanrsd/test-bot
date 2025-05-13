@@ -45,6 +45,9 @@ class AddProductState(StatesGroup):
 class OrderState(StatesGroup):
     waiting_for_payment = State()
 
+class RestockState(StatesGroup):
+    input_accounts = State()
+
 # === UTILITY FUNCTIONS ===
 def load_products():
     try:
@@ -511,7 +514,7 @@ async def select_restock_method(callback: types.CallbackQuery, state: FSMContext
         await callback.answer("❌ Produk tidak ditemukan!")
         return
     
-    await state.set_state("restock_input")
+    await state.set_state(RestockState.input_accounts)
     await state.update_data(product_id=product_id)
     
     await callback.message.edit_text(
@@ -525,7 +528,7 @@ async def select_restock_method(callback: types.CallbackQuery, state: FSMContext
         parse_mode=ParseMode.HTML
     )
 
-@dp.message(F.text, F.state == "restock_input")
+@dp.message(RestockState.input_accounts)
 async def process_restock(message: types.Message, state: FSMContext):
     data = await state.get_data()
     product_id = data["product_id"]
