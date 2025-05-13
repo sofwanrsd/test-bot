@@ -95,82 +95,6 @@ async def admin_panel(message: types.Message):
         "Pilih opsi di bawah:",
         reply_markup=kb.as_markup(resize_keyboard=True)
     )
-
-# === RESTOK AKUN === #
-@dp.message(Command("restock"))
-async def restock_start(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    products = load_products()
-    if not products:
-        await message.answer("❌ Tidak ada produk yang tersedia.")
-        return
-    
-    # Buat keyboard pilihan produk
-    builder = InlineKeyboardBuilder()
-    for product in products:
-        builder.button(text=f"{product['name']} (Stok: {len(product.get('accounts', []))})", callback_data=f"restock_{product['id']}")
-    builder.adjust(1)
-    
-    await message.answer("📦 Pilih produk yang akan di-restock:", reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data.startswith("restock_"))
-async def select_restock_method(callback: types.CallbackQuery, state: FSMContext):
-    product_id = int(callback.data.split("_")[1])
-    product = next((p for p in load_products() if p["id"] == product_id), None)
-    
-    if not product:
-        await callback.answer("❌ Produk tidak ditemukan!")
-        return
-    
-    await state.set_state("restock_input")
-    await state.update_data(product_id=product_id)
-    
-    await callback.message.edit_text(
-        f"📥 Restock {product['name']}\n\n"
-        "🔹 Format restock:\n"
-        "<code>username:password</code>\n"
-        "<code>username2:password2</code>\n\n"
-        "Contoh:\n"
-        "<code>spotifyuser:spotifypass123</code>\n"
-        "<code>premiumacc:password456</code>",
-        parse_mode=ParseMode.HTML
-    )
-
-@dp.message(F.text, F.state == "restock_input")
-async def process_restock(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    product_id = data["product_id"]
-    
-    products = load_products()
-    product = next((p for p in products if p["id"] == product_id), None)
-    
-    if not product:
-        await message.answer("❌ Produk tidak ditemukan!")
-        await state.clear()
-        return
-    
-    # Parsing akun baru
-    accounts = []
-    for line in message.text.split("\n"):
-        if ":" in line:
-            username, password = line.strip().split(":", 1)
-            accounts.append({"username": username, "password": password})
-    
-    if not accounts:
-        await message.answer("❌ Format salah! Gunakan username:password")
-        return
-    
-    # Tambahkan ke produk
-    if "accounts" not in product:
-        product["accounts"] = []
-    
-    product["accounts"].extend(accounts)
-    save_products(products)
-    
-    await message.answer(f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!")
-    await state.clear()
     
 # === ADD PRODUCT FLOW ===
 @dp.message(F.text == "➕ Tambah Produk")
@@ -558,6 +482,82 @@ async def reject_payment(callback: types.CallbackQuery):
         await callback.message.answer(
             f"Gagal mengirim notifikasi ke user. Silakan hubungi manual: {user_id}"
         )
+
+# === RESTOK AKUN === #
+@dp.message(Command("restock"))
+async def restock_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    products = load_products()
+    if not products:
+        await message.answer("❌ Tidak ada produk yang tersedia.")
+        return
+    
+    # Buat keyboard pilihan produk
+    builder = InlineKeyboardBuilder()
+    for product in products:
+        builder.button(text=f"{product['name']} (Stok: {len(product.get('accounts', []))})", callback_data=f"restock_{product['id']}")
+    builder.adjust(1)
+    
+    await message.answer("📦 Pilih produk yang akan di-restock:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("restock_"))
+async def select_restock_method(callback: types.CallbackQuery, state: FSMContext):
+    product_id = int(callback.data.split("_")[1])
+    product = next((p for p in load_products() if p["id"] == product_id), None)
+    
+    if not product:
+        await callback.answer("❌ Produk tidak ditemukan!")
+        return
+    
+    await state.set_state("restock_input")
+    await state.update_data(product_id=product_id)
+    
+    await callback.message.edit_text(
+        f"📥 Restock {product['name']}\n\n"
+        "🔹 Format restock:\n"
+        "<code>username:password</code>\n"
+        "<code>username2:password2</code>\n\n"
+        "Contoh:\n"
+        "<code>spotifyuser:spotifypass123</code>\n"
+        "<code>premiumacc:password456</code>",
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.message(F.text, F.state == "restock_input")
+async def process_restock(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    product_id = data["product_id"]
+    
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product:
+        await message.answer("❌ Produk tidak ditemukan!")
+        await state.clear()
+        return
+    
+    # Parsing akun baru
+    accounts = []
+    for line in message.text.split("\n"):
+        if ":" in line:
+            username, password = line.strip().split(":", 1)
+            accounts.append({"username": username, "password": password})
+    
+    if not accounts:
+        await message.answer("❌ Format salah! Gunakan username:password")
+        return
+    
+    # Tambahkan ke produk
+    if "accounts" not in product:
+        product["accounts"] = []
+    
+    product["accounts"].extend(accounts)
+    save_products(products)
+    
+    await message.answer(f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!")
+    await state.clear()
 
 # === BACK TO MENU ===
 @dp.callback_query(F.data == "back_to_menu")
