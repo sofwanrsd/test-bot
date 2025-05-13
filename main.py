@@ -5,6 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+from dotenv import load_dotenv  # Tambahkan di bagian atas
 
 # Konfigurasi
 # Load .env file jika ada (hanya untuk development)
