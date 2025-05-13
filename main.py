@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import FSInputFile
+from aiogram.client.default import DefaultBotProperties
 import asyncio
 
 # === SETUP LOGGING ===
@@ -29,7 +30,7 @@ except Exception as e:
     exit()
 
 # === SETUP BOT ===
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
@@ -172,7 +173,7 @@ async def edit_snk_start(message: types.Message, state: FSMContext):
     )
     await state.set_state("waiting_for_snk")
 
-@dp.message(F.text, state="waiting_for_snk")
+@dp.message(F.text, F.state == "waiting_for_snk")
 async def save_snk(message: types.Message, state: FSMContext):
     try:
         with open("snk.txt", "w") as f:
