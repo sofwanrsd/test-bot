@@ -91,6 +91,7 @@ async def admin_panel(message: types.Message):
     kb.button(text="➕ Tambah Produk")
     kb.button(text="📝 Edit SNK")
     kb.button(text="📊 Lihat Produk")
+    kb.button(text="📦 Restock")
     kb.adjust(2)
     
     await message.answer(
@@ -501,7 +502,7 @@ async def reject_payment(callback: types.CallbackQuery):
         )
 
 # === RESTOK AKUN === #
-@dp.message(Command("restock"))
+@dp.message(F.text == "📦 Restock")
 async def restock_start(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
