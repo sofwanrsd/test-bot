@@ -63,7 +63,7 @@ def load_products():
 def save_products(products):
     try:
         with open("products.json", "w") as f:
-            json.dump(products, f, indent=4)
+            json.dump(products, f, indent=4, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Error saving products: {e}")
 
@@ -95,6 +95,82 @@ async def admin_panel(message: types.Message):
         "Pilih opsi di bawah:",
         reply_markup=kb.as_markup(resize_keyboard=True)
     )
+
+# === RESTOK AKUN === #
+@dp.message(Command("restock"))
+async def restock_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    products = load_products()
+    if not products:
+        await message.answer("❌ Tidak ada produk yang tersedia.")
+        return
+    
+    # Buat keyboard pilihan produk
+    builder = InlineKeyboardBuilder()
+    for product in products:
+        builder.button(text=f"{product['name']} (Stok: {len(product.get('accounts', []))})", callback_data=f"restock_{product['id']}")
+    builder.adjust(1)
+    
+    await message.answer("📦 Pilih produk yang akan di-restock:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("restock_"))
+async def select_restock_method(callback: types.CallbackQuery, state: FSMContext):
+    product_id = int(callback.data.split("_")[1])
+    product = next((p for p in load_products() if p["id"] == product_id), None)
+    
+    if not product:
+        await callback.answer("❌ Produk tidak ditemukan!")
+        return
+    
+    await state.set_state("restock_input")
+    await state.update_data(product_id=product_id)
+    
+    await callback.message.edit_text(
+        f"📥 Restock {product['name']}\n\n"
+        "🔹 Format restock:\n"
+        "<code>username:password</code>\n"
+        "<code>username2:password2</code>\n\n"
+        "Contoh:\n"
+        "<code>spotifyuser:spotifypass123</code>\n"
+        "<code>premiumacc:password456</code>",
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.message(F.text, F.state == "restock_input")
+async def process_restock(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    product_id = data["product_id"]
+    
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product:
+        await message.answer("❌ Produk tidak ditemukan!")
+        await state.clear()
+        return
+    
+    # Parsing akun baru
+    accounts = []
+    for line in message.text.split("\n"):
+        if ":" in line:
+            username, password = line.strip().split(":", 1)
+            accounts.append({"username": username, "password": password})
+    
+    if not accounts:
+        await message.answer("❌ Format salah! Gunakan username:password")
+        return
+    
+    # Tambahkan ke produk
+    if "accounts" not in product:
+        product["accounts"] = []
+    
+    product["accounts"].extend(accounts)
+    save_products(products)
+    
+    await message.answer(f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!")
+    await state.clear()
     
 # === ADD PRODUCT FLOW ===
 @dp.message(F.text == "➕ Tambah Produk")
@@ -371,10 +447,47 @@ async def verify_payment(callback: types.CallbackQuery):
     user_id = int(user_id)
     product_id = int(product_id)
     
-    product = next((p for p in load_products() if p["id"] == product_id), None)
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
     if not product:
-        await callback.message.answer("Produk tidak ditemukan!")
+        await callback.message.answer("❌ Produk tidak ditemukan!")
         return
+    
+    # Cek apakah ada akun tersedia
+    if "accounts" not in product or not product["accounts"]:
+        await callback.message.answer("❌ Stok akun habis!")
+        return
+    
+    # Ambil akun pertama
+    account = product["accounts"].pop(0)
+    save_products(products)  # Simpan perubahan stok
+    
+    # Kirim ke user
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"🎉 Pembayaran diverifikasi!\n\n"
+                 f"📛 Produk: {product['name']}\n"
+                 f"💵 Harga: {product['price']}\n\n"
+                 f"🔑 Login details:\n"
+                 f"👤 Username: <code>{account['username']}</code>\n"
+                 f"🔒 Password: <code>{account['password']}</code>\n\n"
+                 "⚠️ Jangan bagikan data login ke siapapun!",
+            parse_mode=ParseMode.HTML
+        )
+        
+        await callback.message.edit_text(
+            f"✅ Akun berhasil dikirim ke user!\n"
+            f"Sisa stok: {len(product['accounts'])}",
+            reply_markup=None
+        )
+    except Exception as e:
+        logger.error(f"Gagal mengirim akun: {e}")
+        await callback.message.answer(
+            f"❌ Gagal mengirim akun ke user.\n"
+            f"Kirim manual: {account['username']}:{account['password']}"
+        )
     
     # Update stock
     products = load_products()
