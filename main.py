@@ -370,100 +370,114 @@ async def handle_payment_proof(message: types.Message, state: FSMContext):
 # === ADMIN VERIFICATION ===
 @dp.callback_query(F.data.startswith("verify_"))
 async def verify_payment(callback: types.CallbackQuery):
-    _, user_id, product_id = callback.data.split("_")
-    user_id = int(user_id)
-    product_id = int(product_id)
-    
-    products = load_products()
-    product = next((p for p in products if p["id"] == product_id), None)
-    
-    if not product:
-        await callback.message.answer("❌ Produk tidak ditemukan!")
-        return
-    
-    # Cek apakah ada akun tersedia
-    if "accounts" not in product or not product["accounts"]:
-        await callback.message.answer("❌ Stok akun habis!")
-        return
-    
-    # Ambil akun pertama
-    account = product["accounts"].pop(0)
-    save_products(products)  # Simpan perubahan stok
-    
-    # Kirim ke user
     try:
-        await bot.send_message(
+        _, user_id, product_id = callback.data.split("_")
+        user_id = int(user_id)
+        product_id = int(product_id)
+        
+        # Memberitahu admin bahwa proses verifikasi sedang berjalan
+        await callback.answer("Memproses verifikasi...")
+        
+        products = load_products()
+        product = next((p for p in products if p["id"] == product_id), None)
+        
+        if not product:
+            await callback.message.reply("❌ Produk tidak ditemukan!")
+            return
+        
+        # Periksa stok produk
+        if product['stock'] <= 0:
+            await callback.message.reply("❌ Stok produk habis!")
+            return
+            
+        # Update stok
+        products = load_products()  # Muat ulang untuk mendapatkan data terbaru
+        for p in products:
+            if p['id'] == product_id:
+                p['stock'] -= 1
+                break
+        save_products(products)
+        
+        # Periksa apakah ada akun tersedia
+        account = None
+        if "accounts" in product and product["accounts"]:
+            # Ambil akun pertama
+            account = product["accounts"].pop(0)
+            # Simpan perubahan stok akun
+            save_products(products)
+        
+        # Buat pesan konfirmasi untuk pengguna
+        confirmation_text = (
+            f"🎉 Pembayaran diverifikasi!\n\n"
+            f"📛 Produk: {product['name']}\n"
+            f"💵 Harga: {product['price']}\n\n"
+        )
+        
+        # Tambahkan detail akun jika tersedia
+        if account:
+            account_text = (
+                f"🔑 Login details:\n"
+                f"👤 Username: <code>{account['username']}</code>\n"
+                f"🔒 Password: <code>{account['password']}</code>\n\n"
+                "⚠️ Jangan bagikan data login ke siapapun!"
+            )
+            confirmation_text += account_text
+        
+        # Kirim pesan konfirmasi ke pengguna
+        sent_message = await bot.send_message(
             chat_id=user_id,
-            text=f"🎉 Pembayaran diverifikasi!\n\n"
-                 f"📛 Produk: {product['name']}\n"
-                 f"💵 Harga: {product['price']}\n\n"
-                 f"🔑 Login details:\n"
-                 f"👤 Username: <code>{account['username']}</code>\n"
-                 f"🔒 Password: <code>{account['password']}</code>\n\n"
-                 "⚠️ Jangan bagikan data login ke siapapun!",
+            text=confirmation_text,
             parse_mode=ParseMode.HTML
         )
         
-        await callback.message.edit_text(
-            f"✅ Akun berhasil dikirim ke user!\n"
-            f"Sisa stok: {len(product['accounts'])}",
-            reply_markup=None
-        )
-    except Exception as e:
-        logger.error(f"Gagal mengirim akun: {e}")
-        await callback.message.answer(
-            f"❌ Gagal mengirim akun ke user.\n"
-            f"Kirim manual: {account['username']}:{account['password']}"
-        )
-    
-    # Update stock
-    products = load_products()
-    for p in products:
-        if p['id'] == product_id:
-            p['stock'] -= 1
-            break
-    save_products(products)
-    
-    # Send product to user
-    try:
-        if product['file_id']:
-            if product['file_id'].startswith("AgAC"):  # Photo
-                await bot.send_photo(
-                    chat_id=user_id,
-                    photo=product['file_id'],
-                    caption=f"🎉 Pembayaran telah diverifikasi!\n\n"
-                          f"📛 Produk: {product['name']}\n"
-                          f"💵 Harga: {product['price']}\n\n"
-                          f"Terima kasih telah berbelanja!"
-                )
-            else:  # Document
-                await bot.send_document(
-                    chat_id=user_id,
-                    document=product['file_id'],
-                    caption=f"🎉 Pembayaran telah diverifikasi!\n\n"
-                          f"📛 Produk: {product['name']}\n"
-                          f"💵 Harga: {product['price']}\n\n"
-                          f"Terima kasih telah berbelanja!"
-                )
-        else:
-            await bot.send_message(
-                chat_id=user_id,
-                text=f"🎉 Pembayaran telah diverifikasi!\n\n"
-                     f"📛 Produk: {product['name']}\n"
-                     f"💵 Harga: {product['price']}\n\n"
-                     f"Namun, produk tidak tersedia. Hubungi admin @admin"
-            )
+        # Beri tahu admin bahwa konfirmasi berhasil dikirim
+        admin_response = f"✅ Konfirmasi pembayaran berhasil dikirim ke user!"
+        if account:
+            admin_response += f"\nSisa stok akun: {len(product.get('accounts', []))}"
         
-        await callback.message.edit_text(
-            f"✅ Pembayaran telah diverifikasi dan produk dikirim ke user.",
-            reply_markup=None
-        )
+        # Gunakan reply untuk membuat pesan baru, bukan edit pesan lama
+        await callback.message.reply(admin_response)
+        
+        # Kirim file produk ke pengguna jika ada
+        if product['file_id']:
+            try:
+                # Teks caption untuk file
+                caption_text = (
+                    f"📦 Produk Anda: {product['name']}\n"
+                    f"Terima kasih telah berbelanja!"
+                )
+                
+                # Kirim file sesuai tipenya
+                if product['file_id'].startswith("AgAC"):  # Photo
+                    await bot.send_photo(
+                        chat_id=user_id,
+                        photo=product['file_id'],
+                        caption=caption_text
+                    )
+                else:  # Document
+                    await bot.send_document(
+                        chat_id=user_id,
+                        document=product['file_id'],
+                        caption=caption_text
+                    )
+                
+                # Beri tahu admin bahwa file berhasil dikirim
+                await callback.message.reply("✅ File produk berhasil dikirim ke user!")
+                
+            except Exception as e:
+                logger.error(f"Error saat mengirim file produk: {e}")
+                error_message = (
+                    f"❌ Gagal mengirim file produk ke user: {str(e)}\n"
+                    f"Silakan kirim manual ke user ID: {user_id}"
+                )
+                await callback.message.reply(error_message)
+    
     except Exception as e:
-        logger.error(f"Error sending product: {e}")
-        await callback.message.answer(
-            f"❌ Gagal mengirim produk ke user: {e}\n"
-            f"Silakan kirim manual ke user ID: {user_id}"
-        )
+        logger.error(f"Error dalam proses verifikasi: {e}")
+        error_message = f"❌ Terjadi kesalahan dalam proses verifikasi: {str(e)}"
+        if 'user_id' in locals() and 'account' in locals() and account:
+            error_message += f"\nKirim manual: {account['username']}:{account['password']} ke user ID: {user_id}"
+        await callback.message.reply(error_message)
 
 # === ADMIN REJECT ===
 @dp.callback_query(F.data.startswith("reject_"))
@@ -577,8 +591,115 @@ async def process_restock(message: types.Message, state: FSMContext):
     
     await message.answer(f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!")
     await state.clear()
-
-# === BACK TO MENU ===
+# === KIRIM ULANG DATA === #
+@dp.message(Command("kirimulang"))
+async def resend_account(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Akses ditolak!")
+        return
+        
+    # Cek apakah perintah memiliki format yang benar
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer(
+            "❌ Format salah!\n\n"
+            "Gunakan: /kirimulang <user_id> <product_id>"
+        )
+        return
+        
+    try:
+        user_id = int(args[1])
+        product_id = int(args[2])
+        
+        products = load_products()
+        product = next((p for p in products if p["id"] == product_id), None)
+        
+        if not product:
+            await message.answer("❌ Produk tidak ditemukan!")
+            return
+            
+        # Cek apakah ada akun tersedia
+        if "accounts" not in product or not product["accounts"]:
+            await message.answer(
+                "❌ Tidak ada akun tersedia untuk produk ini.\n"
+                "Silakan tambahkan akun terlebih dahulu dengan /restock"
+            )
+            return
+            
+        # Ambil akun pertama
+        account = product["accounts"].pop(0)
+        save_products(products)
+        
+        # Kirim akun ke user
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"🎉 Pembayaran diverifikasi!\n\n"
+                 f"📛 Produk: {product['name']}\n"
+                 f"💵 Harga: {product['price']}\n\n"
+                 f"🔑 Login details:\n"
+                 f"👤 Username: <code>{account['username']}</code>\n"
+                 f"🔒 Password: <code>{account['password']}</code>\n\n"
+                 "⚠️ Jangan bagikan data login ke siapapun!",
+            parse_mode=ParseMode.HTML
+        )
+        
+        # Kirim produk jika ada
+        if product['file_id']:
+            if product['file_id'].startswith("AgAC"):  # Photo
+                await bot.send_photo(
+                    chat_id=user_id,
+                    photo=product['file_id'],
+                    caption=f"📦 Produk Anda: {product['name']}\nTerima kasih telah berbelanja!"
+                )
+            else:  # Document
+                await bot.send_document(
+                    chat_id=user_id,
+                    document=product['file_id'],
+                    caption=f"📦 Produk Anda: {product['name']}\nTerima kasih telah berbelanja!"
+                )
+        
+        await message.answer(f"✅ Akun dan produk berhasil dikirim ulang ke user ID: {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error dalam pengiriman ulang: {e}")
+        await message.answer(f"❌ Gagal mengirim ulang: {str(e)}")
+        
+# === mengirim akun secara manual === #
+@dp.message(Command("kirimakun"))
+async def send_manual_account(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Akses ditolak!")
+        return
+        
+    # Cek format perintah
+    args = message.get_args().split()
+    if len(args) < 3:
+        await message.answer(
+            "❌ Format salah!\n\n"
+            "Gunakan: /kirimakun <user_id> <username> <password>"
+        )
+        return
+        
+    try:
+        user_id = int(args[0])
+        username = args[1]
+        password = args[2]
+        
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"🔑 Login details:\n"
+                 f"👤 Username: <code>{username}</code>\n"
+                 f"🔒 Password: <code>{password}</code>\n\n"
+                 "⚠️ Jangan bagikan data login ke siapapun!",
+            parse_mode=ParseMode.HTML
+        )
+        
+        await message.answer(f"✅ Akun berhasil dikirim ke user ID: {user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error dalam pengiriman akun manual: {e}")
+        await message.answer(f"❌ Gagal mengirim akun: {str(e)}")
+# === BACK TO MENU === #
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: types.CallbackQuery):
     products = [p for p in load_products() if p['stock'] > 0]
