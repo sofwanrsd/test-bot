@@ -9,7 +9,7 @@ from aiogram import F
 import asyncio
 
 # === CONFIG ===
-BOT_TOKEN = "ISI_TOKEN_BOT_MU"
+BOT_TOKEN = "7881608858:AAELvHWNppyQgMoIzUfSTXOrxvaifVt8S8M"
 ADMIN_ID = 123456789  # Ganti dengan ID Admin
 
 # === LOAD PRODUK ===
