@@ -1,147 +1,165 @@
-import os
 import json
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from dotenv import load_dotenv
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# Load env variables
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))
+# Ganti dengan token asli
+BOT_TOKEN = "YOUR_BOT_TOKEN"
+ADMIN_IDS = [123456789]  # Ganti dengan ID admin
 
-# Data files
-SERVICES_FILE = "data/services.json"
-ACCOUNTS_FILE = "data/accounts.json"
-SNK_TEXT = "1. Akun hanya dapat digunakan oleh 1 orang.\n2. Tidak dapat ditukar atau dikembalikan.\n3. Bot tidak bertanggung jawab atas pemblokiran akun."
+# Inisialisasi data jika belum ada
+if not os.path.exists("database.json"):
+    with open("database.json", "w") as f:
+        json.dump({"services": {}, "accounts": {}, "referrals": {}}, f)
 
-# Helper functions
-def load_json(filename):
-    if not os.path.exists(filename):
-        return {}
-    with open(filename, "r") as f:
+# Load database
+def load_db():
+    with open("database.json", "r") as f:
         return json.load(f)
 
-def save_json(filename, data):
-    with open(filename, "w") as f:
+def save_db(data):
+    with open("database.json", "w") as f:
         json.dump(data, f, indent=2)
 
-# Commands
+# Command /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Selamat datang, {update.effective_user.first_name}!\n\n"
-        "Silakan ketik /layanan untuk melihat daftar layanan yang tersedia."
-    )
+    keyboard = [
+        [InlineKeyboardButton("🎬 Streaming", callback_data="kategori_Streaming")],
+        [InlineKeyboardButton("💻 Software", callback_data="kategori_Software")],
+        [InlineKeyboardButton("🎮 Game", callback_data="kategori_Game")],
+        [InlineKeyboardButton("ℹ️ Cara Order", callback_data="cara_order")],
+    ]
+    await update.message.reply_text("Selamat datang! Pilih layanan di bawah ini:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def layanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    services = load_json(SERVICES_FILE)
-    if not services:
-        await update.message.reply_text("Belum ada layanan tersedia.")
+# Command /akun (alias menu)
+async def akun(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start(update, context)
+
+# Callback untuk kategori
+async def kategori_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    kategori = query.data.split("_")[1]
+    db = load_db()
+    layanan = [nama for nama, val in db["services"].items() if val.get("kategori") == kategori]
+    if not layanan:
+        await query.edit_message_text("Belum ada layanan di kategori ini.")
         return
-    reply = "📦 Layanan Tersedia:\n"
-    for svc, detail in services.items():
-        reply += f"- {svc}: {detail['deskripsi']}\n"
-    await update.message.reply_text(reply)
+    keyboard = [[InlineKeyboardButton(name, callback_data=f"layanan_{name}")] for name in layanan]
+    await query.edit_message_text(f"Pilih layanan {kategori}:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def paket(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if not args:
-        await update.message.reply_text("Gunakan: /paket <NamaLayanan>")
+# Callback untuk layanan
+async def layanan_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    layanan = query.data.split("_")[1]
+    db = load_db()
+    if layanan not in db["services"]:
+        await query.edit_message_text("Layanan tidak ditemukan.")
         return
 
-    layanan = args[0]
-    services = load_json(SERVICES_FILE)
-    if layanan not in services:
-        await update.message.reply_text("Layanan tidak ditemukan.")
-        return
-
-    akun = load_json(ACCOUNTS_FILE)
-    reply = f"📦 Paket untuk {layanan}:\n"
-    for paket, akun_list in akun.get(layanan, {}).items():
-        stok = len(akun_list)
+    text = f"🎬 {layanan.upper()} PREMIUM\\n"
+    keyboard = []
+    for paket, info in db["services"][layanan].items():
+        stok = info["stock"]
         status = "✅" if stok > 0 else "❌"
-        harga = services[layanan]["paket"].get(paket, "Rp -")
-        reply += f"- {paket} - {harga} (Stok: {stok}) {status}\n"
+        text += f"{paket.capitalize()} - Rp{info['price']} (Stok: {stok}) {status}\\n"
+        keyboard.append([InlineKeyboardButton(f"{paket.capitalize()} {status}", callback_data=f"paket_{layanan}_{paket}")])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    await update.message.reply_text(reply)
-
-async def beli(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("Gunakan: /beli <Layanan> <Paket>")
+# Callback untuk paket
+async def paket_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, layanan, paket = query.data.split("_")
+    db = load_db()
+    stok = db["services"][layanan][paket]["stock"]
+    if stok <= 0:
+        await query.edit_message_text("❌ STOK HABIS!\\nSilakan pilih paket lain atau cek kembali nanti.")
         return
-
-    layanan, paket = args[0], args[1]
-    akun = load_json(ACCOUNTS_FILE)
-
-    if layanan not in akun or paket not in akun[layanan] or not akun[layanan][paket]:
-        await update.message.reply_text("❌ STOK HABIS atau layanan tidak ditemukan.")
+    # Simulasi pembayaran (otomatis)
+    akun_key = f"{layanan}_{paket}"
+    akun = db["accounts"].get(akun_key, [])
+    if not akun:
+        await query.edit_message_text("❌ Akun kosong! Silakan hubungi admin.")
         return
+    akun_dikirim = akun.pop(0)
+    db["services"][layanan][paket]["stock"] -= 1
+    db["accounts"][akun_key] = akun
+    save_db(db)
+    email, password = akun_dikirim.split(":")
+    await query.edit_message_text(f"✅ AKUN {layanan.upper()}:\\nEmail: {email}\\nPassword: {password}\\nMasa aktif: {paket}")
 
-    akun_terpilih = akun[layanan][paket].pop(0)
-    save_json(ACCOUNTS_FILE, akun)
-
-    await update.message.reply_text(
-        f"✅ Akun {layanan.upper()}:\n{akun_terpilih}\n\n📝 Syarat dan Ketentuan:\n{SNK_TEXT}"
-    )
-
-# ADMIN FUNCTIONS
+# Tambah layanan (admin)
 async def tambah_layanan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("🚫 Akses ditolak!")
         return
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text("Gunakan: /tambah_layanan <Nama> <Deskripsi> <Kategori>")
-        return
+    try:
+        nama, deskripsi, kategori = context.args[0], context.args[1], context.args[2]
+        db = load_db()
+        db["services"][nama] = {"deskripsi": deskripsi, "kategori": kategori}
+        save_db(db)
+        await update.message.reply_text(f"✅ Layanan {nama} ditambahkan.")
+    except:
+        await update.message.reply_text("Format salah. Gunakan: /tambah_layanan NAMA \"DESKRIPSI\" KATEGORI")
 
-    nama, deskripsi, kategori = args[0], args[1], args[2]
-    data = load_json(SERVICES_FILE)
-    data[nama] = {"deskripsi": deskripsi, "kategori": kategori, "paket": {}}
-    save_json(SERVICES_FILE, data)
-    await update.message.reply_text(f"Layanan {nama} berhasil ditambahkan.")
-
-async def tambah_paket(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Tambah stok (admin)
+async def tambah_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("🚫 Akses ditolak!")
         return
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text("Gunakan: /tambah_paket <Layanan> <Paket> <Harga>")
-        return
-    layanan, paket, harga = args[0], args[1], args[2]
+    try:
+        layanan, paket, jumlah = context.args[0], context.args[1], int(context.args[2])
+        akun_list = context.args[3:]  # akun1:pass1 akun2:pass2 ...
+        db = load_db()
+        if layanan not in db["services"]:
+            await update.message.reply_text("Layanan tidak ditemukan.")
+            return
+        if paket not in db["services"][layanan]:
+            db["services"][layanan][paket] = {"price": 0, "stock": 0}
+        db["services"][layanan][paket]["stock"] += jumlah
+        akun_key = f"{layanan}_{paket}"
+        if akun_key not in db["accounts"]:
+            db["accounts"][akun_key] = []
+        db["accounts"][akun_key] += akun_list
+        save_db(db)
+        await update.message.reply_text(f"✅ Stok untuk {layanan} paket {paket} ditambah {jumlah} akun.")
+    except:
+        await update.message.reply_text("Format salah. Gunakan: /tambah_stok LAYANAN PAKET JUMLAH akun1:pass1 akun2:pass2 ...")
 
-    data = load_json(SERVICES_FILE)
-    if layanan not in data:
-        await update.message.reply_text("Layanan tidak ditemukan.")
-        return
-    data[layanan]["paket"][paket] = harga
-    save_json(SERVICES_FILE, data)
-    await update.message.reply_text("Paket berhasil ditambahkan.")
-
-async def tambah_akun(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Cek stok (admin)
+async def cek_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("🚫 Akses ditolak!")
         return
-    args = context.args
-    if len(args) < 3:
-        await update.message.reply_text("Gunakan: /tambah_akun <Layanan> <Paket> <Email:Password>")
-        return
-    layanan, paket, akun_str = args[0], args[1], args[2]
-    data = load_json(ACCOUNTS_FILE)
-    data.setdefault(layanan, {}).setdefault(paket, []).append(akun_str)
-    save_json(ACCOUNTS_FILE, data)
-    await update.message.reply_text("✅ Akun berhasil ditambahkan.")
+    try:
+        layanan = context.args[0]
+        db = load_db()
+        if layanan not in db["services"]:
+            await update.message.reply_text("Layanan tidak ditemukan.")
+            return
+        text = f"📊 STOK {layanan.upper()}:\\n"
+        for paket, info in db["services"][layanan].items():
+            text += f"{paket.capitalize()}: {info['stock']} akun\\n"
+        await update.message.reply_text(text)
+    except:
+        await update.message.reply_text("Format: /stok LAYANAN")
 
-# MAIN
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
+# Main function
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("layanan", layanan))
-    app.add_handler(CommandHandler("paket", paket))
-    app.add_handler(CommandHandler("beli", beli))
-
-    # Admin commands
+    app.add_handler(CommandHandler("akun", akun))
     app.add_handler(CommandHandler("tambah_layanan", tambah_layanan))
-    app.add_handler(CommandHandler("tambah_paket", tambah_paket))
-    app.add_handler(CommandHandler("tambah_akun", tambah_akun))
-
-    print("Bot started...")
+    app.add_handler(CommandHandler("tambah_stok", tambah_stok))
+    app.add_handler(CommandHandler("stok", cek_stok))
+    app.add_handler(CallbackQueryHandler(kategori_handler, pattern="^kategori_"))
+    app.add_handler(CallbackQueryHandler(layanan_handler, pattern="^layanan_"))
+    app.add_handler(CallbackQueryHandler(paket_handler, pattern="^paket_"))
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
+    """
+}
