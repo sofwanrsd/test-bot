@@ -541,16 +541,32 @@ async def process_restock(message: types.Message, state: FSMContext):
         await state.clear()
         return
     
-    # Parsing akun baru
+    # Parsing akun baru (support baris atau koma)
     accounts = []
-    for line in message.text.split("\n"):
+
+    # Gabungkan semua teks menjadi satu string
+    text = message.text.strip()
+
+    # Pisahkan berdasarkan koma atau baris
+    if '\n' in text:
+        raw_lines = text.split('\n')
+    elif ',' in text:
+        raw_lines = text.split(',')
+    else:
+        raw_lines = [text]
+
+    # Parsing akun
+    for line in raw_lines:
+        line = line.strip()
         if ":" in line:
-            username, password = line.strip().split(":", 1)
-            accounts.append({"username": username, "password": password})
-    
+            username, password = line.split(":", 1)
+            accounts.append({"username": username.strip(), "password": password.strip()})
+
+    # Validasi apakah ada akun
     if not accounts:
-        await message.answer("❌ Format salah! Gunakan username:password")
+        await message.answer("❌ Format salah! Gunakan username:password, pisahkan dengan baris atau koma.")
         return
+
     
     # Tambahkan ke produk
     if "accounts" not in product:
