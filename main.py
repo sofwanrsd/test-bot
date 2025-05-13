@@ -10,7 +10,7 @@ import asyncio
 
 # === CONFIG ===
 BOT_TOKEN = "7881608858:AAELvHWNppyQgMoIzUfSTXOrxvaifVt8S8M"
-ADMIN_ID = 123456789  # Ganti dengan ID Admin
+ADMIN_ID = 5678748710  # Ganti dengan ID Admin
 
 # === LOAD PRODUK ===
 def load_products():
