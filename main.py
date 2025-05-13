@@ -5,6 +5,9 @@ from flask import Flask, render_template, request, redirect, url_for
 from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext, CallbackQueryHandler
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Konfigurasi
 BOT_TOKEN = os.getenv("BOT_TOKEN")
