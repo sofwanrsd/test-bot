@@ -370,6 +370,7 @@ async def handle_payment_proof(message: types.Message, state: FSMContext):
 
 # === ADMIN VERIFICATION ===
 @dp.callback_query(F.data.startswith("verify_"))
+@dp.callback_query(F.data.startswith("verify_"))
 async def verify_payment(callback: types.CallbackQuery):
     try:
         _, user_id, product_id = callback.data.split("_")
@@ -386,43 +387,33 @@ async def verify_payment(callback: types.CallbackQuery):
             await callback.message.reply("❌ Produk tidak ditemukan!")
             return
         
-        # Periksa stok produk
-        if product['stock'] <= 0:
-            await callback.message.reply("❌ Stok produk habis!")
+        # Periksa ketersediaan akun
+        if "accounts" not in product or not product["accounts"]:
+            await callback.message.reply(
+                "❌ Tidak ada akun tersedia untuk produk ini.\n"
+                "Silakan tambahkan akun terlebih dahulu dengan /restock"
+            )
             return
-            
-        # Update stok
-        products = load_products()  # Muat ulang untuk mendapatkan data terbaru
-        for p in products:
-            if p['id'] == product_id:
-                p['stock'] -= 1
-                break
-        save_products(products)
         
-        # Periksa apakah ada akun tersedia
-        account = None
-        if "accounts" in product and product["accounts"]:
-            # Ambil akun pertama
-            account = product["accounts"].pop(0)
-            # Simpan perubahan stok akun
-            save_products(products)
+        # Ambil akun pertama
+        account = product["accounts"].pop(0)
+        
+        # Update stok produk berdasarkan jumlah akun yang tersisa
+        product["stock"] = len(product["accounts"])
+        
+        # Simpan perubahan
+        save_products(products)
         
         # Buat pesan konfirmasi untuk pengguna
         confirmation_text = (
             f"🎉 Pembayaran diverifikasi!\n\n"
             f"📛 Produk: {product['name']}\n"
             f"💵 Harga: {product['price']}\n\n"
+            f"🔑 Login details:\n"
+            f"👤 Username: <code>{account['username']}</code>\n"
+            f"🔒 Password: <code>{account['password']}</code>\n\n"
+            "⚠️ Jangan bagikan data login ke siapapun!"
         )
-        
-        # Tambahkan detail akun jika tersedia
-        if account:
-            account_text = (
-                f"🔑 Login details:\n"
-                f"👤 Username: <code>{account['username']}</code>\n"
-                f"🔒 Password: <code>{account['password']}</code>\n\n"
-                "⚠️ Jangan bagikan data login ke siapapun!"
-            )
-            confirmation_text += account_text
         
         # Kirim pesan konfirmasi ke pengguna
         sent_message = await bot.send_message(
@@ -432,9 +423,11 @@ async def verify_payment(callback: types.CallbackQuery):
         )
         
         # Beri tahu admin bahwa konfirmasi berhasil dikirim
-        admin_response = f"✅ Konfirmasi pembayaran berhasil dikirim ke user!"
-        if account:
-            admin_response += f"\nSisa stok akun: {len(product.get('accounts', []))}"
+        admin_response = (
+            f"✅ Akun berhasil dikirim ke user!\n"
+            f"🔸 Sisa akun: {len(product['accounts'])}\n"
+            f"🔸 Stok diperbarui: {product['stock']}"
+        )
         
         # Gunakan reply untuk membuat pesan baru, bukan edit pesan lama
         await callback.message.reply(admin_response)
@@ -515,7 +508,12 @@ async def restock_start(message: types.Message, state: FSMContext):
     # Buat keyboard pilihan produk
     builder = InlineKeyboardBuilder()
     for product in products:
-        builder.button(text=f"{product['name']} (Stok: {len(product.get('accounts', []))})", callback_data=f"restock_{product['id']}")
+        # Tampilkan info stok akun
+        account_count = len(product.get('accounts', []))
+        builder.button(
+            text=f"{product['name']} (Stok: {product['stock']}, Akun: {account_count})", 
+            callback_data=f"restock_{product['id']}"
+        )
     builder.adjust(1)
     
     await message.answer("📦 Pilih produk yang akan di-restock:", reply_markup=builder.as_markup())
@@ -532,8 +530,13 @@ async def select_restock_method(callback: types.CallbackQuery, state: FSMContext
     await state.set_state(RestockState.input_accounts)
     await state.update_data(product_id=product_id)
     
+    current_stock = product.get('stock', 0)
+    current_accounts = len(product.get('accounts', []))
+    
     await callback.message.edit_text(
         f"📥 Restock {product['name']}\n\n"
+        f"🔸 Stok saat ini: {current_stock}\n"
+        f"🔸 Akun tersedia: {current_accounts}\n\n"
         "🔹 Format restock:\n"
         "<code>username:password</code>\n"
         "<code>username2:password2</code>\n\n"
@@ -581,17 +584,25 @@ async def process_restock(message: types.Message, state: FSMContext):
     if not accounts:
         await message.answer("❌ Format salah! Gunakan username:password, pisahkan dengan baris atau koma.")
         return
-
     
     # Tambahkan ke produk
     if "accounts" not in product:
         product["accounts"] = []
     
     product["accounts"].extend(accounts)
+    
+    # Update stok produk berdasarkan jumlah akun
+    product["stock"] = len(product["accounts"])
+    
     save_products(products)
     
-    await message.answer(f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!")
+    await message.answer(
+        f"✅ {len(accounts)} akun berhasil ditambahkan ke {product['name']}!\n"
+        f"🔸 Total akun: {len(product['accounts'])}\n"
+        f"🔸 Stok diperbarui menjadi: {product['stock']}"
+    )
     await state.clear()
+    
 # === KIRIM ULANG DATA === #
 @dp.message(Command("kirimulang"))
 async def resend_account(message: types.Message):
@@ -700,6 +711,218 @@ async def send_manual_account(message: types.Message):
     except Exception as e:
         logger.error(f"Error dalam pengiriman akun manual: {e}")
         await message.answer(f"❌ Gagal mengirim akun: {str(e)}")
+# CEK STOCK #
+@dp.message(Command("cekstok"))
+async def check_account_stock(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Akses ditolak!")
+        return
+    
+    products = load_products()
+    if not products:
+        await message.answer("❌ Tidak ada produk tersedia.")
+        return
+    
+    text = "📊 <b>Stok Produk & Akun</b>\n\n"
+    
+    for product in products:
+        account_count = len(product.get('accounts', []))
+        
+        # Sinkronkan stok dengan jumlah akun jika berbeda
+        if product.get('stock', 0) != account_count:
+            product['stock'] = account_count
+            
+        text += (
+            f"📛 <b>{product['name']}</b>\n"
+            f"💵 {product['price']}\n"
+            f"🛒 Stok: {product['stock']}\n"
+            f"👤 Akun tersedia: {account_count}\n\n"
+        )
+    
+    # Simpan perubahan jika ada penyesuaian stok
+    save_products(products)
+    
+    await message.answer(text, parse_mode=ParseMode.HTML)
+
+# Hapus Akun + Stock #
+@dp.message(Command("hapusakun"))
+async def remove_account_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Akses ditolak!")
+        return
+        
+    products = load_products()
+    if not products:
+        await message.answer("❌ Tidak ada produk tersedia.")
+        return
+    
+    # Pilih produk untuk menghapus akun
+    builder = InlineKeyboardBuilder()
+    for product in products:
+        account_count = len(product.get('accounts', []))
+        if account_count > 0:
+            builder.button(
+                text=f"{product['name']} ({account_count} akun)", 
+                callback_data=f"rmaccount_{product['id']}"
+            )
+    builder.adjust(1)
+    
+    if len(builder.buttons) == 0:
+        await message.answer("❌ Tidak ada produk yang memiliki akun.")
+        return
+    
+    await message.answer("🗑️ Pilih produk untuk mengelola akun:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("rmaccount_"))
+async def show_account_list(callback: types.CallbackQuery, state: FSMContext):
+    product_id = int(callback.data.split("_")[1])
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product or not product.get('accounts', []):
+        await callback.message.edit_text("❌ Tidak ada akun tersedia.")
+        return
+    
+    # Tampilkan 5 akun pertama dengan tombol hapus
+    text = f"🗑️ <b>Hapus Akun - {product['name']}</b>\n\n"
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Hanya tampilkan maksimal 10 akun untuk menghindari tombol terlalu banyak
+    shown_accounts = product['accounts'][:10]
+    
+    for i, account in enumerate(shown_accounts):
+        text += f"{i+1}. Username: <code>{account['username']}</code>\n"
+        builder.button(
+            text=f"🗑️ Hapus #{i+1}", 
+            callback_data=f"delaccount_{product_id}_{i}"
+        )
+    
+    total_accounts = len(product['accounts'])
+    if total_accounts > 10:
+        text += f"\n... dan {total_accounts - 10} akun lainnya"
+    
+    # Tambahkan tombol untuk menghapus semua akun
+    builder.button(
+        text="🗑️ Hapus Semua Akun", 
+        callback_data=f"delallaccount_{product_id}"
+    )
+    
+    builder.button(
+        text="🔙 Kembali", 
+        callback_data="admin_menu"
+    )
+    
+    builder.adjust(2)
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=builder.as_markup(),
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.callback_query(F.data.startswith("delaccount_"))
+async def delete_account(callback: types.CallbackQuery):
+    _, product_id, account_index = callback.data.split("_")
+    product_id = int(product_id)
+    account_index = int(account_index)
+    
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product or not product.get('accounts', []) or account_index >= len(product['accounts']):
+        await callback.answer("❌ Akun tidak ditemukan!")
+        return
+    
+    # Hapus akun
+    deleted_account = product['accounts'].pop(account_index)
+    
+    # Update stok
+    product['stock'] = len(product['accounts'])
+    
+    # Simpan perubahan
+    save_products(products)
+    
+    await callback.answer(f"✅ Akun {deleted_account['username']} dihapus!")
+    
+    # Tampilkan ulang daftar akun
+    await show_account_list(callback, None)
+
+@dp.callback_query(F.data.startswith("delallaccount_"))
+async def delete_all_accounts(callback: types.CallbackQuery):
+    product_id = int(callback.data.split("_")[1])
+    
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product:
+        await callback.answer("❌ Produk tidak ditemukan!")
+        return
+    
+    # Konfirmasi penghapusan
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Ya, Hapus Semua", 
+        callback_data=f"confirmdelall_{product_id}"
+    )
+    builder.button(
+        text="❌ Batal", 
+        callback_data=f"rmaccount_{product_id}"
+    )
+    
+    await callback.message.edit_text(
+        f"⚠️ <b>KONFIRMASI</b> ⚠️\n\n"
+        f"Anda akan menghapus SEMUA akun untuk produk <b>{product['name']}</b>.\n"
+        f"Total {len(product.get('accounts', []))} akun akan dihapus.\n\n"
+        f"Apakah Anda yakin?",
+        reply_markup=builder.as_markup(),
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.callback_query(F.data.startswith("confirmdelall_"))
+async def confirm_delete_all(callback: types.CallbackQuery):
+    product_id = int(callback.data.split("_")[1])
+    
+    products = load_products()
+    product = next((p for p in products if p["id"] == product_id), None)
+    
+    if not product:
+        await callback.answer("❌ Produk tidak ditemukan!")
+        return
+    
+    account_count = len(product.get('accounts', []))
+    
+    # Hapus semua akun
+    product['accounts'] = []
+    
+    # Update stok
+    product['stock'] = 0
+    
+    # Simpan perubahan
+    save_products(products)
+    
+    await callback.message.edit_text(
+        f"✅ Berhasil menghapus {account_count} akun dari produk <b>{product['name']}</b>.\n"
+        f"Stok diperbarui menjadi 0.",
+        parse_mode=ParseMode.HTML
+    )
+
+# Tombol kembali ke menu admin
+@dp.callback_query(F.data == "admin_menu")
+async def back_to_admin_menu(callback: types.CallbackQuery):
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="➕ Tambah Produk")
+    kb.button(text="📝 Edit SNK")
+    kb.button(text="📊 Lihat Produk")
+    kb.adjust(2)
+    
+    await callback.message.reply(
+        "🛠️ **Panel Admin**\n"
+        "Pilih opsi di bawah:",
+        reply_markup=kb.as_markup(resize_keyboard=True)
+    )
+    await callback.message.delete()
+    
 # === BACK TO MENU === #
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: types.CallbackQuery):
