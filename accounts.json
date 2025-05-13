@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "service": "netflix",
+    "email": "netflix_premium1@dummy.com",
+    "password": "dummy123",
+    "duration": "1 Bulan",
+    "price": 50000,
+    "status": "available",
+    "added_at": "2024-03-20T10:00:00Z",
+    "expiry_date": "2024-04-20T10:00:00Z"
+  },
+  {
+    "id": 2,
+    "service": "spotify",
+    "email": "spotify_family@dummy.com",
+    "password": "music456",
+    "duration": "3 Bulan",
+    "price": 120000,
+    "status": "available",
+    "added_at": "2024-03-20T11:00:00Z",
+    "expiry_date": "2024-06-20T11:00:00Z"
+  },
+  {
+    "id": 3,
+    "service": "youtube",
+    "email": "yt_premium@dummy.com",
+    "password": "video789",
+    "duration": "1 Tahun",
+    "price": 200000,
+    "status": "available",
+    "added_at": "2024-03-20T12:00:00Z",
+    "expiry_date": "2025-03-20T12:00:00Z"
+  },
+  {
+    "id": 4,
+    "service": "canva",
+    "email": "canva_pro@dummy.com",
+    "password": "design101",
+    "duration": "6 Bulan",
+    "price": 150000,
+    "status": "sold",
+    "added_at": "2024-03-19T09:00:00Z",
+    "expiry_date": "2024-09-19T09:00:00Z",
+    "sold_to": 123456789
+  },
+  {
+    "id": 5,
+    "service": "zoom",
+    "email": "zoom_business@dummy.com",
+    "password": "meeting2024",
+    "duration": "1 Bulan",
+    "price": 75000,
+    "status": "available",
+    "added_at": "2024-03-21T08:00:00Z",
+    "expiry_date": "2024-04-21T08:00:00Z"
+  }
+]
